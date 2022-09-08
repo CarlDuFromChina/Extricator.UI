@@ -7,26 +7,34 @@
     :footer-style="{ textAlign: 'right' }"
     :body-style="{ paddingBottom: '80px' }"
   >
-    <a-form ref="formRef" :model="formState" layout="vertical">
+    <a-form ref="formRef" :model="formState" :rules="rulesRef" layout="vertical">
       <a-form-item label="用户名">
         <a-input v-model:value="formState.code" :disabled="true"> </a-input>
       </a-form-item>
-      <a-form-item label="邮箱">
+      <a-form-item label="手机号码" name="phone">
+        <a-input type="number" v-model:value="formState.phone"> </a-input>
+      </a-form-item>
+      <a-form-item label="邮箱" name="email">
         <a-input
           v-model:value="formState.email"
           type="email"
+          @change="handleChanged"
           autocomplete="off"
+          allowClear
         >
           <template #addonAfter>
             <a-button
               type="link"
               size="small"
-              :disabled="formState.mail_verified"
+              :disabled="(formState.mail_verified && !mailChanged) || !isEmail(formState.email)"
               @click="verify"
-              >{{ formState.mail_verified ? '已验证' : '验证' }}</a-button
+              >{{ formState.mail_verified && !mailChanged ? '已验证' : '验证' }}</a-button
             >
           </template>
         </a-input>
+      </a-form-item>
+      <a-form-item label="通知方式" name="notification_method">
+        <a-radio-group :options="NotificationMethodOptions" v-model:value="formState.notification_method" />
       </a-form-item>
     </a-form>
     <div
@@ -47,7 +55,7 @@
         @click="$emit('update:visible', false)"
         >取消</a-button
       >
-      <a-button type="primary" @click="changePassword">确认</a-button>
+      <a-button type="primary" @click="submit">确认</a-button>
     </div>
   </a-drawer>
 </template>
@@ -55,13 +63,17 @@
 <script lang="ts">
 import { Button, message, Modal, notification } from 'ant-design-vue';
 import { ExclamationCircleOutlined } from '@ant-design/icons-vue';
-import { createVNode, defineComponent, h, reactive, ref, toRaw, UnwrapRef } from 'vue';
+import { createVNode, defineComponent, h, reactive, ref, toRaw, UnwrapRef, watch } from 'vue';
 import http from '../../utils/http';
+import { RuleObject } from 'ant-design-vue/lib/form/interface';
+import { isEmpty } from '../../utils/assert';
 
 interface FormState {
   code: string;
+  phone: string;
   email: string;
   mail_verified: boolean;
+  notification_method: number;
 }
 
 export default defineComponent({
@@ -78,9 +90,50 @@ export default defineComponent({
     const formRef = ref();
     const formState: UnwrapRef<FormState> = reactive({
       code: '',
+      phone: '',
       email: '',
       mail_verified: false,
+      notification_method: 1
     });
+    const rulesRef = reactive({
+      email: [
+        {
+          type: 'email',
+          message: '请输入正确的邮箱',
+        },
+        {
+          validator: async (rule: RuleObject, value: string) => {
+            if (isEmpty(value) && formState.notification_method === 1) {
+              return Promise.reject('通知方式为邮箱时，邮箱必填');
+            }
+            if (!isEmpty(value) && !formState.mail_verified) {
+              return Promise.reject('邮箱必须验证');
+            }
+          },
+          trigger: 'change'
+        }
+      ],
+      phone: [
+        {
+          validator: async (rule: RuleObject, value: string) => {
+            if (isEmpty(value) && formState.notification_method === 0) {
+              return Promise.reject('通知方式为企业危险时，手机号码必填');
+            }
+            if (!isEmpty(value) && !isPhone(value)) {
+              return Promise.reject('请输入正确的手机号码');
+            }
+          },
+          trigger: 'change'
+        }
+      ]
+    });
+    var isEmail = (val: string) => !isEmpty(val) && /^([a-zA-Z0-9_-])+@([a-zA-Z0-9_-])+(.[a-zA-Z0-9_-])+/.test(val);
+    var isPhone = (val: string) => !isEmpty(val) && /^1[3|4|5|7|8]\d{9}$/.test(val);
+    var NotificationMethodOptions = ref([
+      { label: '企业微信', value: 0 },
+      { label: '邮箱', value: 1 },
+    ]);
+
     var verify = () => {
       http.post('/api/email/verify', toRaw(formState)).then(() => {
         Modal.confirm({
@@ -88,17 +141,33 @@ export default defineComponent({
           icon: () => createVNode(ExclamationCircleOutlined),
           content: () => '是否完成邮箱验证？',
           onOk() {
-            http.get('/api/user/data').then((resp) => {
-              Object.assign(formState, resp);
+            http.get('/api/user/data').then((resp: any) => {
+              if (resp.mail_verified) {
+                originEmail = resp.email;
+                formState.mail_verified = true;
+                handleChanged();
+                formRef.value.validate();
+              } else {
+                message.error('验证失败，请确认邮件验证成功');
+              }
             });
           },
           onCancel() {},
         });
       });
     };
-    http.get('/api/user/data').then((resp: any) => {
+
+    var originEmail = '';
+    var mailChanged = ref(false);
+    var handleChanged = () => {
+      mailChanged.value = originEmail !== formState.email;
+      formState.mail_verified = originEmail === formState.email;
+    };
+
+    var fetch = async () => http.get('/api/user/data').then((resp: any) => {
+      originEmail = resp.email;
       Object.assign(formState, resp);
-      if (!formState.mail_verified) {
+      if (!formState.mail_verified && !isEmpty(formState.email) && formState.notification_method === 1) {
         const key = `open${Date.now()}`;
         notification['warning']({
           message: '邮箱验证提醒',
@@ -119,19 +188,27 @@ export default defineComponent({
         });
       }
     });
-    const changePassword = () => {
+    fetch();
+
+    const submit = () => {
       formRef.value.validate().then(() => {
         http.put('/api/user/data', toRaw(formState)).then(() => {
           message.success('更新成功');
           context.emit('update:visible', false);
+          fetch();
         });
       });
     };
     return {
+      handleChanged,
+      mailChanged,
       verify,
       formRef,
       formState,
-      changePassword,
+      rulesRef,
+      submit,
+      isEmail,
+      NotificationMethodOptions
     };
   },
 });

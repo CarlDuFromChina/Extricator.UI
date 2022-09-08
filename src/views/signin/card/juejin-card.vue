@@ -2,7 +2,7 @@
   <a-card :bordered="false">
     <a-row>
       <a-col style="text-align: left" :span="4">
-        <sp-icon name="juejin" size="36"></sp-icon>
+        <sp-icon name="juejin" size="36" color="#1e80ff"></sp-icon>
       </a-col>
       <a-col :span="20">
         <p class="title">掘金</p>
@@ -15,9 +15,9 @@
       <a-button type="link" @click="allin" :disabled="!formState.cookie">梭哈</a-button>
       <a-button type="link" @click="visible = true">设置</a-button>
     </template>
-    <a-modal v-model:visible="visible" title="设置" @ok="saveData">
+    <a-modal v-model:visible="visible" title="设置" width="720px" @ok="saveData">
       <a-alert
-        message="注意：Cookie 有效期大部分为一个月，请及时更新"
+        :message="'注意：Cookie 有效期大部分为一个月，请及时更新'"
         type="warning"
         style="margin-bottom: 12px"
         show-icon
@@ -31,19 +31,24 @@
           </a-col>
         </a-row>
         <a-row>
-          <a-col :span="8">
+          <a-col :span="6">
+            <a-form-item label="自动签到">
+              <a-switch v-model:checked="formState.auto_sign" />
+            </a-form-item>
+          </a-col>
+          <a-col :span="6">
             <a-form-item label="成功提醒">
               <a-switch v-model:checked="formState.enable_success_notify" />
             </a-form-item>
           </a-col>
-          <a-col :span="8">
+          <a-col :span="6">
             <a-form-item label="异常提醒">
               <a-switch v-model:checked="formState.enable_error_notify" />
             </a-form-item>
           </a-col>
-          <a-col :span="8">
+          <a-col :span="6">
             <a-form-item label="Cookie过期提醒">
-              <a-switch v-model:checked="formState.enable_cookie_expire_notify" />
+              <a-switch v-model:checked="formState.enable_cookie_expired_notify" />
             </a-form-item>
           </a-col>
         </a-row>
@@ -62,7 +67,8 @@ import { isEmpty } from "../../../utils/assert";
 
 interface FormState {
   cookie: string;
-  enable_cookie_expire_notify: boolean;
+  auto_sign: boolean,
+  enable_cookie_expired_notify: boolean;
   enable_error_notify: boolean;
   enable_success_notify: boolean;
 }
@@ -73,7 +79,8 @@ export default defineComponent({
     const formRef = ref();
     const formState: UnwrapRef<FormState> = reactive({
       cookie: '',
-      enable_cookie_expire_notify: true,
+      auto_sign: true,
+      enable_cookie_expired_notify: true,
       enable_error_notify: true,
       enable_success_notify: true,
     });
@@ -98,7 +105,7 @@ export default defineComponent({
     var checkin = () => {
       http.post('/api/juejin/checkin').then(() => {
         message.success('签到成功');
-        refresh();
+        window.location.reload();
       });
     };
     var draw = () => {
